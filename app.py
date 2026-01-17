@@ -1,11 +1,11 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 import csv
 import io
 import re
 import zipfile
 
-app = FastAPI(title="Lead Filter API", version="3.0")
+app = FastAPI(title="Lead Filter API", version="4.0")
 
 # ------------------------
 # Validation Helpers
@@ -25,7 +25,7 @@ def clean_email(email: str):
 def clean_phone(phone: str):
     if not phone:
         return None
-    # remove spaces, +, -, brackets etc.
+    # Remove spaces, +, -, (), etc.
     phone = re.sub(r"[^\d]", "", phone)
 
     # India support (91XXXXXXXXXX → XXXXXXXXXX)
@@ -99,12 +99,34 @@ def generate_csv(data, fieldnames):
 # ------------------------
 
 @app.post("/clean-leads")
-async def clean_leads(file: UploadFile = File(...)):
+async def clean_leads(
+    file: UploadFile = File(...),
+    name_column: str = Form(None),
+    email_column: str = Form(None),
+    phone_column: str = Form(None),
+):
+    """
+    Two modes:
+    1. Manual Mode: If name_column, email_column, phone_column are provided.
+    2. Auto Mode: If not provided, auto-detect columns.
+    """
+
     contents = await file.read()
     decoded = contents.decode("utf-8", errors="ignore").splitlines()
     reader = csv.DictReader(decoded)
 
-    name_col, email_col, phone_col, rows = auto_detect_columns(reader)
+    # ------------------------
+    # Column Selection Logic
+    # ------------------------
+    if name_column and email_column and phone_column:
+        rows = list(reader)
+        name_col = name_column
+        email_col = email_column
+        phone_col = phone_column
+        detection_mode = "manual"
+    else:
+        name_col, email_col, phone_col, rows = auto_detect_columns(reader)
+        detection_mode = "auto"
 
     seen_emails = set()
     seen_phones = set()
@@ -147,7 +169,9 @@ async def clean_leads(file: UploadFile = File(...)):
                 "phone": phone
             })
 
+    # ------------------------
     # Generate CSVs
+    # ------------------------
     cleaned_csv = generate_csv(cleaned, ["name", "email", "phone"])
     rejected_csv = generate_csv(rejected, ["name", "email", "phone", "reason"])
 
@@ -162,7 +186,7 @@ async def clean_leads(file: UploadFile = File(...)):
     zip_buffer.seek(0)
 
     # ------------------------
-    # STATS (for headers/debug)
+    # STATS
     # ------------------------
     total = len(cleaned) + len(rejected)
     valid = len(cleaned)
@@ -181,6 +205,7 @@ async def clean_leads(file: UploadFile = File(...)):
             "X-Valid": str(valid),
             "X-Invalid": str(invalid),
             "X-Duplicates": str(duplicates),
+            "X-Detection-Mode": detection_mode,
             "X-Detected-Name-Column": str(name_col),
             "X-Detected-Email-Column": str(email_col),
             "X-Detected-Phone-Column": str(phone_col),
