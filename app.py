@@ -5,7 +5,7 @@ import io
 
 app = FastAPI()
 
-@app.post("/filter-leads-csv")
+@app.post("/clean-leads")
 async def filter_leads_csv(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
         return {"error": "Only CSV files allowed"}
@@ -39,3 +39,33 @@ async def filter_leads_csv(file: UploadFile = File(...)):
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=filtered_leads.csv"}
     )
+
+@app.post("/clean-leads-stats")
+async def clean_leads_stats(file: UploadFile = File(...)):
+    if not file.filename.endswith(".csv"):
+        return {"error": "Only CSV files allowed"}
+
+    contents = await file.read()
+    decoded = contents.decode("utf-8").splitlines()
+    reader = csv.DictReader(decoded)
+
+    required_fields = {"name", "email", "phone"}
+    if not required_fields.issubset(reader.fieldnames):
+        return {"error": "CSV must contain name, email, phone columns"}
+
+    rows = list(reader)
+    total_rows = len(rows)
+
+    valid = 0
+    for row in rows:
+        phone = row.get("phone", "").strip()
+        email = row.get("email", "").strip()
+
+        if phone.isdigit() and len(phone) == 10 and "@" in email:
+            valid += 1
+
+    return {
+        "total": total_rows,
+        "valid": valid,
+        "removed": total_rows - valid
+    }
