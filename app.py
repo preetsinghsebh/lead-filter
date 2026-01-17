@@ -20,12 +20,12 @@ async def filter_leads_csv(file: UploadFile = File(...)):
 
     filtered = []
     for row in reader:
-    phone = row.get("phone", "").strip()
-    email = row.get("email", "").strip()
+        phone = row.get("phone", "").strip()
+        email = row.get("email", "").strip()
 
-    if phone.isdigit() and len(phone) == 10 and "@" in email:
-        row["phone"] = str(phone)   # force phone as string
-        filtered.append(row)
+        if phone.isdigit() and len(phone) == 10 and "@" in email:
+            row["phone"] = str(phone)  # force phone as string
+            filtered.append(row)
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=reader.fieldnames)
