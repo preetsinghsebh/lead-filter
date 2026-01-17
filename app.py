@@ -39,9 +39,12 @@ async def clean_leads(
     writer.writerows(filtered)
     output.seek(0)
 
-    return {
-        "total": total,
-        "valid": valid,
-        "removed": total - valid,
-        "cleaned_data": output.getvalue()
+   from fastapi.responses import StreamingResponse
+
+return StreamingResponse(
+    output,
+    media_type="text/csv",
+    headers={
+        "Content-Disposition": "attachment; filename=cleaned_leads.csv"
     }
+)
