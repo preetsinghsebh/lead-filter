@@ -1,15 +1,29 @@
-# Lead Cleaning API
+# Lead Cleaner API 🚀
 
-Upload a CSV file containing leads and get a cleaned version.
+A FastAPI-based API to clean and validate lead CSV files.
 
-### CSV Format
-name,email,phone
-
-### Features
+## Features
 - Validates phone numbers (10 digits)
 - Validates email format
-- Removes invalid leads
+- Removes invalid rows
+- Preserves phone numbers as strings
 - Returns cleaned CSV
+- Returns stats in JSON
 
-### Endpoint
-POST /clean-leads
+## Endpoints
+
+### Clean CSV
+POST `/clean-leads`
+
+Returns cleaned CSV file.
+
+### Stats
+POST `/clean-leads-stats`
+
+Returns:
+```json
+{
+  "total": 100,
+  "valid": 75,
+  "removed": 25
+}
