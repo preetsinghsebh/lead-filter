@@ -4,6 +4,7 @@ import io
 
 app = FastAPI()
 
+
 @app.post("/clean-leads")
 async def clean_leads(
     file: UploadFile = File(...),
@@ -21,6 +22,7 @@ async def clean_leads(
 
     for row in reader:
         total += 1
+
         name = row.get(name_column, "").strip()
         email = row.get(email_column, "").strip()
         phone = row.get(phone_column, "").strip()
@@ -39,12 +41,9 @@ async def clean_leads(
     writer.writerows(filtered)
     output.seek(0)
 
-   from fastapi.responses import StreamingResponse
-
-return StreamingResponse(
-    output,
-    media_type="text/csv",
-    headers={
-        "Content-Disposition": "attachment; filename=cleaned_leads.csv"
+    return {
+        "total": total,
+        "valid": valid,
+        "removed": total - valid,
+        "cleaned_data": output.getvalue()
     }
-)
