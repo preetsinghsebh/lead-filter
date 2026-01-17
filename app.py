@@ -1,9 +1,11 @@
 from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import StreamingResponse
 import csv
 import io
 import re
+import zipfile
 
-app = FastAPI(title="Lead Filter API", version="2.0")
+app = FastAPI(title="Lead Filter API", version="3.0")
 
 # ------------------------
 # Validation Helpers
@@ -26,7 +28,7 @@ def clean_phone(phone: str):
     # remove spaces, +, -, brackets etc.
     phone = re.sub(r"[^\d]", "", phone)
 
-    # India support (91XXXXXXXXXX)
+    # India support (91XXXXXXXXXX → XXXXXXXXXX)
     if len(phone) == 12 and phone.startswith("91"):
         phone = phone[2:]
 
@@ -145,23 +147,42 @@ async def clean_leads(file: UploadFile = File(...)):
                 "phone": phone
             })
 
+    # Generate CSVs
     cleaned_csv = generate_csv(cleaned, ["name", "email", "phone"])
     rejected_csv = generate_csv(rejected, ["name", "email", "phone", "reason"])
 
-    return {
-        "stats": {
-            "total": len(cleaned) + len(rejected),
-            "valid": len(cleaned),
-            "invalid": len([r for r in rejected if "Invalid" in r["reason"]]),
-            "duplicates": len([r for r in rejected if "Duplicate" in r["reason"]])
-        },
-        "detected_columns": {
-            "name": name_col,
-            "email": email_col,
-            "phone": phone_col
-        },
-        "files": {
-            "cleaned.csv": cleaned_csv,
-            "rejected.csv": rejected_csv
+    # ------------------------
+    # ZIP FILE CREATION
+    # ------------------------
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+        zipf.writestr("cleaned.csv", cleaned_csv)
+        zipf.writestr("rejected.csv", rejected_csv)
+
+    zip_buffer.seek(0)
+
+    # ------------------------
+    # STATS (for headers/debug)
+    # ------------------------
+    total = len(cleaned) + len(rejected)
+    valid = len(cleaned)
+    invalid = len([r for r in rejected if "Invalid" in r["reason"]])
+    duplicates = len([r for r in rejected if "Duplicate" in r["reason"]])
+
+    # ------------------------
+    # ZIP DOWNLOAD RESPONSE
+    # ------------------------
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": "attachment; filename=lead_results.zip",
+            "X-Total": str(total),
+            "X-Valid": str(valid),
+            "X-Invalid": str(invalid),
+            "X-Duplicates": str(duplicates),
+            "X-Detected-Name-Column": str(name_col),
+            "X-Detected-Email-Column": str(email_col),
+            "X-Detected-Phone-Column": str(phone_col),
         }
-    }
+    )
