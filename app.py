@@ -5,8 +5,17 @@ import csv
 import io
 import re
 import zipfile
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Lead Filter API", version="5.1")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # =====================================================
 # ---------------- TEXT → LEADS LOGIC ------------------
