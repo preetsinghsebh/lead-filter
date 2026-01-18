@@ -6,7 +6,7 @@ import io
 import re
 import zipfile
 
-app = FastAPI(title="Lead Filter API", version="5.0")
+app = FastAPI(title="Lead Filter API", version="5.1")
 
 # =====================================================
 # ---------------- TEXT → LEADS LOGIC ------------------
@@ -43,7 +43,7 @@ def has_buying_intent(text: str) -> bool:
     return any(k in text.lower() for k in keywords)
 
 
-def score_lead(name: str, email: str, phone: str, message: str):
+def score_lead(email: str, phone: str, message: str):
     score = 0
     reasons = []
 
@@ -85,7 +85,7 @@ def text_to_leads(data: TextInput):
         email = extract_email(msg)
         phone = extract_phone(msg)
 
-        score, status, reason = score_lead(name, email, phone, msg)
+        score, status, reason = score_lead(email, phone, msg)
 
         summary["total"] += 1
         summary[status.lower()] += 1
@@ -120,7 +120,7 @@ def text_to_leads(data: TextInput):
     )
 
 # =====================================================
-# ---------------- CSV CLEANING LOGIC ------------------
+# ---------------- CSV CLEANING + SCORING --------------
 # =====================================================
 
 EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
@@ -220,58 +220,72 @@ async def clean_leads(
         email = clean_email(raw_email)
         phone = clean_phone(raw_phone)
 
-        reason = None
-
         if not email:
-            reason = "Invalid email"
-        elif not phone:
-            reason = "Invalid phone"
-        elif email in seen_emails:
-            reason = "Duplicate email"
-        elif phone in seen_phones:
-            reason = "Duplicate phone"
-
-        if reason:
             rejected.append({
                 "name": name,
                 "email": raw_email,
                 "phone": raw_phone,
-                "reason": reason
+                "reason": "Invalid email"
             })
-        else:
-            seen_emails.add(email)
-            seen_phones.add(phone)
-            cleaned.append({
-                "name": name,
-                "email": email,
-                "phone": phone
-            })
+            continue
 
-    cleaned_csv = generate_csv(cleaned, ["name", "email", "phone"])
-    rejected_csv = generate_csv(rejected, ["name", "email", "phone", "reason"])
+        if not phone:
+            rejected.append({
+                "name": name,
+                "email": raw_email,
+                "phone": raw_phone,
+                "reason": "Invalid phone"
+            })
+            continue
+
+        if email in seen_emails or phone in seen_phones:
+            rejected.append({
+                "name": name,
+                "email": raw_email,
+                "phone": raw_phone,
+                "reason": "Duplicate lead"
+            })
+            continue
+
+        seen_emails.add(email)
+        seen_phones.add(phone)
+
+        score, status, reason = score_lead(email, phone, "")
+
+        cleaned.append({
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "lead_score": score,
+            "lead_status": status,
+            "reason": reason
+        })
+
+    cleaned_csv = generate_csv(
+        cleaned,
+        ["name", "email", "phone", "lead_score", "lead_status", "reason"]
+    )
+
+    rejected_csv = generate_csv(
+        rejected,
+        ["name", "email", "phone", "reason"]
+    )
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
         zipf.writestr("cleaned.csv", cleaned_csv)
         zipf.writestr("rejected.csv", rejected_csv)
-    zip_buffer.seek(0)
 
-    total = len(cleaned) + len(rejected)
-    invalid = len([r for r in rejected if "Invalid" in r["reason"]])
-    duplicates = len([r for r in rejected if "Duplicate" in r["reason"]])
+    zip_buffer.seek(0)
 
     return StreamingResponse(
         zip_buffer,
         media_type="application/zip",
         headers={
             "Content-Disposition": "attachment; filename=lead_results.zip",
-            "X-Total": str(total),
-            "X-Valid": str(len(cleaned)),
-            "X-Invalid": str(invalid),
-            "X-Duplicates": str(duplicates),
             "X-Detection-Mode": detection_mode,
-            "X-Detected-Name-Column": str(name_col),
-            "X-Detected-Email-Column": str(email_col),
-            "X-Detected-Phone-Column": str(phone_col),
+            "X-Total": str(len(cleaned) + len(rejected)),
+            "X-Valid": str(len(cleaned)),
+            "X-Rejected": str(len(rejected)),
         }
     )
