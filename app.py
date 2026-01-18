@@ -289,3 +289,69 @@ async def clean_leads(
             "X-Rejected": str(len(rejected)),
         }
     )
+
+# =====================================================
+# ---------------- SIMPLE HEALTH CHECK ----------------
+# =====================================================
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "service": "Lead Filter API",
+        "version": "6.1"
+    }
+
+
+# =====================================================
+# --------- TEXT → LEADS (JSON INPUT VERSION) ---------
+# =====================================================
+
+class TextInput(BaseModel):
+    text: str
+
+
+@app.post("/text-to-leads-simple")
+def text_to_leads_simple(data: TextInput):
+    messages = [m.strip() for m in data.text.split("\n\n") if m.strip()]
+
+    rows = []
+    summary = {"HOT": 0, "WARM": 0, "COLD": 0}
+
+    for msg in messages:
+        name = extract_name(msg)
+        email = extract_email(msg)
+        phone = extract_phone(msg)
+
+        score, status, reason = score_lead(email, phone, msg)
+        summary[status] += 1
+
+        rows.append({
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "message": msg.replace("\n", " "),
+            "lead_score": score,
+            "lead_status": status,
+            "reason": reason
+        })
+
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        ["name", "email", "phone", "message", "lead_score", "lead_status", "reason"]
+    )
+    writer.writeheader()
+    writer.writerows(rows)
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=text_leads.csv",
+            "X-HOT": str(summary["HOT"]),
+            "X-WARM": str(summary["WARM"]),
+            "X-COLD": str(summary["COLD"]),
+        }
+    )
